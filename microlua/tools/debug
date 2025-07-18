@@ -1,0 +1,9 @@
+#!/bin/bash
+# Copyright 2023 Remy Blank <remy@c-space.org>
+# SPDX-License-Identifier: MIT
+
+set -o errexit -o pipefail -o nounset
+
+gdb --eval-command="target extended-remote localhost:3333" \
+    --eval-command="layout split" \
+    "$@"

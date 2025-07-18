@@ -26,6 +26,41 @@ pico_sdk_init()
 add_executable(pico-WSPRer)
 pico_generate_pio_header(pico-WSPRer ${CMAKE_CURRENT_LIST_DIR}/hf-oscillator/gpstime/timer_PIO.pio)# These Lines are what invoke the assembler that compiles the .pio programs
 pico_generate_pio_header(pico-WSPRer ${CMAKE_CURRENT_LIST_DIR}/onewire/onewire_library.pio) 
+
+# MicroLua source path
+set(MICROLUA_PATH ${CMAKE_CURRENT_SOURCE_DIR}/microlua/src)
+
+add_library(microlua STATIC
+    ${MICROLUA_PATH}/lapi.c
+    ${MICROLUA_PATH}/lcode.c
+    ${MICROLUA_PATH}/ldebug.c
+    ${MICROLUA_PATH}/ldo.c
+    ${MICROLUA_PATH}/ldump.c
+    ${MICROLUA_PATH}/lfunc.c
+    ${MICROLUA_PATH}/lgc.c
+    ${MICROLUA_PATH}/llex.c
+    ${MICROLUA_PATH}/lmem.c
+    ${MICROLUA_PATH}/lobject.c
+    ${MICROLUA_PATH}/lopcodes.c
+    ${MICROLUA_PATH}/lparser.c
+    ${MICROLUA_PATH}/lstate.c
+    ${MICROLUA_PATH}/lstring.c
+    ${MICROLUA_PATH}/ltable.c
+    ${MICROLUA_PATH}/ltm.c
+    ${MICROLUA_PATH}/lundump.c
+    ${MICROLUA_PATH}/lvm.c
+    ${MICROLUA_PATH}/lzio.c
+    ${MICROLUA_PATH}/lua.c         # main interpreter loop
+    ${MICROLUA_PATH}/lauxlib.c     # <-- REQUIRED
+    ${MICROLUA_PATH}/lbaselib.c    # <-- REQUIRED for luaL_openlibs()
+    ${MICROLUA_PATH}/linit.c       # <-- REQUIRED for luaL_openlibs()
+)
+
+
+message(STATUS "MicroLua path: ${MICROLUA_PATH}")
+
+target_include_directories(microlua PUBLIC ${MICROLUA_PATH})
+
 target_sources(pico-WSPRer PUBLIC
 	           ${CMAKE_CURRENT_LIST_DIR}/hf-oscillator/lib/assert.c   
                ${CMAKE_CURRENT_LIST_DIR}/pico-fractional-pll/pico_fractional_pll.c
@@ -38,6 +73,7 @@ target_sources(pico-WSPRer PUBLIC
                ${CMAKE_CURRENT_LIST_DIR}/debug/logutils.c
                ${CMAKE_CURRENT_LIST_DIR}/onewire/onewire_library.c  
                ${CMAKE_CURRENT_LIST_DIR}/utilities.c
+               ${CMAKE_CURRENT_LIST_DIR}/wspr_lua_bindings.c
                ${CMAKE_CURRENT_LIST_DIR}/main.c
               )
 
@@ -59,6 +95,7 @@ target_include_directories(pico-WSPRer PRIVATE
                           )
 
 target_link_libraries(pico-WSPRer
+                      microlua
                       pico_stdlib
                       pico_sync
                       pico_multicore

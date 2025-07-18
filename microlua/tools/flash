@@ -1,0 +1,18 @@
+#!/bin/bash
+# Copyright 2023 Remy Blank <remy@c-space.org>
+# SPDX-License-Identifier: MIT
+
+set -o errexit -o pipefail -o nounset
+
+if [[ $# != 1 ]]; then
+    echo "Usage: $(basename "$0") BINARY.elf" >&2
+    exit 2
+fi
+
+openocd -f interface/cmsis-dap.cfg -f target/rp2040.cfg \
+    -c "adapter speed 5000" \
+    -c "program $1" \
+    -c "arm semihosting enable" \
+    -c "reset run" \
+    -c "targets" \
+    -c "shutdown"

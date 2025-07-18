@@ -1,0 +1,119 @@
+#!/bin/bash
+# Copyright 2024 Remy Blank <remy@c-space.org>
+# SPDX-License-Identifier: MIT
+
+set -o errexit -o pipefail -o nounset
+shopt -s nullglob
+
+trap "echo -ne $'\e[?25h'" EXIT  # Show the cursor on termination
+
+die() {
+    echo "ERROR: $@" >&2
+    exit 1
+}
+
+usage() {
+    cat >&2 <<EOT
+Usage: $(basename "$0") --target=TARGET [option ...] [-- arg ...]
+EOT
+}
+
+SOURCE="."
+BUILD=""
+PLATFORM="host"
+TARGET="bin/mlua_tests"
+LOOP=0
+JOBS="9"
+CMAKE_ARGS=()
+
+MLUA_PATH="$(readlink -f "$(dirname "$0")/..")"
+
+OPTS="$(getopt -o "b:c:hj:lp:s:t:" \
+            -l "build:,cmake-arg:,help,jobs:,loop,parallel:,platform:,source:,target:" \
+            -n "$(basename "$0")" -- "$@")"
+[[ $? -ne 0 ]] && exit 2
+eval set -- "${OPTS}"
+while true; do
+    case "$1" in
+        -b|--build) BUILD="$2"; shift 2;;
+        -c|--cmake-arg) CMAKE_ARGS+=("$2"); shift 2;;
+        -h|--help) usage; exit 0;;
+        -j|--jobs|--parallel) JOBS="$2"; shift 2;;
+        -l|--loop) LOOP=1; shift;;
+        -p|--platform)
+            PLATFORM="$2"
+            [[ -f "${MLUA_PATH}/lib/${PLATFORM}/platform.cmake" ]] \
+                || die "invalid platform: ${PLATFORM}"
+            shift 2;;
+        -s|--source) SOURCE="$2"; shift 2;;
+        -t|--target) TARGET="$2"; shift 2;;
+        --) shift; break;;
+        *) echo "ERROR: option parsing error" >&2; exit 2;;
+    esac
+done
+
+[[ -n "${BUILD}" ]] || BUILD="${SOURCE}/build-${PLATFORM}"
+SOURCE="$(readlink -f "${SOURCE}")"
+BUILD="$(readlink -f "${BUILD}")"
+
+on-failure-exit() {
+    [[ "$1" -eq 0 ]] && return 0
+    [[ "$1" -ge 128 ]] && exit "$1"
+    [[ "${LOOP}" -eq 0 ]] && exit "$1"
+    read -p "Press ENTER to rebuild..."
+    return 1
+}
+
+run-host() {
+    "${BUILD}/${TARGET}" "$@"
+}
+
+find-tty-dev() {
+    local tty_path usb_path dev
+    while true; do
+        for tty_path in /sys/class/tty/ttyACM*; do
+            usb_path="$(readlink -f "${tty_path}/device/..")"
+            [[ "$(cat "${usb_path}/idVendor")" == "2e8a" ]] || continue
+            [[ "$(cat "${usb_path}/idProduct")" == "000a" ]] || continue
+            dev="/dev/$(basename "${tty_path}")"
+            while [[ ! ( -r "${dev}" && -w "${dev}" ) ]]; do sleep 0.2; done
+            echo "${dev}"
+            return
+        done
+        sleep 0.2
+    done
+}
+
+run-pico() {
+    # TODO: Provide args to test binary through USB endpoint
+    # TODO: Extract test result from USB endpoint
+    local bin="${BUILD}/${TARGET}.elf" usb_stdio
+    picotool info --all "${bin}" | grep -F 'USB stdin / stdout' >/dev/null \
+        && usb_stdio=1 || usb_stdio=0
+    picotool load --update --execute "${bin}" --force-no-reboot \
+        && res=$? || res=$?
+    on-failure-exit "${res}" || return 1
+    if [[ "${usb_stdio}" -ne 0 ]]; then
+        "${MLUA_PATH}/tools/term" "$(find-tty-dev)"
+    else
+        read -p "Press ENTER to rebuild..."
+    fi
+}
+
+while true; do
+    # Configure.
+    cmake -S "${SOURCE}" -B "${BUILD}" -DMLUA_PLATFORM="${PLATFORM}" \
+        "${CMAKE_ARGS[@]}" && res=$? || res=$?
+    on-failure-exit "${res}" || continue
+
+    # Build the target.
+    cmake --build "${BUILD}" --parallel="${JOBS}" \
+        --target="$(basename "${TARGET}")" && res=$? || res=$?
+    on-failure-exit "${res}" || continue
+
+    # Run the target.
+    "run-${PLATFORM}" "$@" && res=$? || res=$?
+    echo -ne $'\e[?25h'  # Show the cursor
+    [[ "${res}" -ge 128 ]] && exit "${res}"
+    [[ "${LOOP}" -ne 0 ]] || exit "${res}"
+done
